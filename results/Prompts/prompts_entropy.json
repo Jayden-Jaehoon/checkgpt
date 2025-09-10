@@ -1,0 +1,68 @@
+{
+  "value_investor": {
+    "entropy": 6.2597638375350755,
+    "num_portfolios": 50,
+    "total_stocks": 1544,
+    "unique_stocks": 144
+  },
+  "growth_investor": {
+    "entropy": 5.626340903402934,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 88
+  },
+  "momentum_investor": {
+    "entropy": 5.190265320317092,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 49
+  },
+  "speculative_trader": {
+    "entropy": 5.416982877074266,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 74
+  },
+  "index_mimicker": {
+    "entropy": 5.233165836366704,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 51
+  },
+  "thematic_investor": {
+    "entropy": 5.666262348881805,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 96
+  },
+  "sentiment_driven_investor": {
+    "entropy": 5.866722811043501,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 104
+  },
+  "non_financial_background_investor": {
+    "entropy": 5.30508613476133,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 56
+  },
+  "low_risk_aversion_investor": {
+    "entropy": 5.241866957299669,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 52
+  },
+  "high_risk_aversion_investor": {
+    "entropy": 5.31482526885891,
+    "num_portfolios": 50,
+    "total_stocks": 1500,
+    "unique_stocks": 54
+  },
+  "neutral": {
+    "entropy": 5.733744858436875,
+    "num_portfolios": 50,
+    "total_stocks": 1960,
+    "unique_stocks": 69
+  }
+}

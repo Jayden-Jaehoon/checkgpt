@@ -1,0 +1,68 @@
+{
+  "value_investor": {
+    "mean": 0.4258752587872491,
+    "variance": 0.09389813945644945,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "growth_investor": {
+    "mean": 0.5938005033546997,
+    "variance": 0.026832891897723636,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "momentum_investor": {
+    "mean": 0.792902444673204,
+    "variance": 0.019486405189712595,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "speculative_trader": {
+    "mean": 0.7232969593868148,
+    "variance": 0.060838942921047585,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "index_mimicker": {
+    "mean": 0.7752752908617224,
+    "variance": 0.011971697700591442,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "thematic_investor": {
+    "mean": 0.5856854811055442,
+    "variance": 0.017552958972751834,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "sentiment_driven_investor": {
+    "mean": 0.4912335766466056,
+    "variance": 0.0614324866073161,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "non_financial_background_investor": {
+    "mean": 0.7214441608950063,
+    "variance": 0.022774560500559544,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "low_risk_aversion_investor": {
+    "mean": 0.7578184217048693,
+    "variance": 0.015126727986811915,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "high_risk_aversion_investor": {
+    "mean": 0.7225870717917414,
+    "variance": 0.010098701022151175,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  },
+  "neutral": {
+    "mean": 0.6871514958093344,
+    "variance": 0.00962139508779722,
+    "num_portfolios": 50,
+    "num_comparisons": 1225
+  }
+}
