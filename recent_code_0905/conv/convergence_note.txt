@@ -1,0 +1,2 @@
+Convergence observation (rounded to 3 decimals):
+  n=100 means: neutral_investor=0.691, value_investor=0.293, growth_investor=0.454, momentum_investor=0.705, speculative_trader=0.629, index_mimicker=0.709, thematic_investor=0.430, sentiment_driven_investor=0.481, non_financial_background_investor=0.697, low_risk_aversion_investor=0.666, high_risk_aversion_investor=0.660
