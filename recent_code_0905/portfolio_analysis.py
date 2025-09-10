@@ -118,14 +118,22 @@ def backtest_portfolio(
     ann_return = float((1.0 + port_rets).prod() ** (252.0 / max(1, len(port_rets))) - 1.0)
     ann_vol = float(port_rets.std() * np.sqrt(252.0)) if len(port_rets) > 1 else np.nan
 
+    # --- Annualized Sharpe Ratio ---
     denom = excess.std()
-    sr = float(excess.mean() / denom) if denom > 0 else np.nan
+    if denom > 0 and np.isfinite(denom):
+        # 1) Daily Sharpe
+        sr_daily = float(excess.mean() / denom)
+        # 2) Annualize assuming 252 trading days
+        sr_ann = sr_daily * np.sqrt(252.0)
+    else:
+        sr_ann = np.nan
 
-    sr_ci_low, sr_ci_high = calculate_sharpe_ci(sr, len(excess)) if np.isfinite(sr) else (np.nan, np.nan)
+    # 3) CI based on annualized Sharpe
+    sr_ci_low, sr_ci_high = calculate_sharpe_ci(sr_ann, len(excess)) if np.isfinite(sr_ann) else (np.nan, np.nan)
 
     return {
         "cumulative_return": cum_return,
-        "sharpe": sr,
+        "sharpe": sr_ann,
         "sr_ci_low": sr_ci_low,
         "sr_ci_high": sr_ci_high,
         "ann_return": ann_return,

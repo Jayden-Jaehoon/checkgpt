@@ -3,6 +3,7 @@ import csv
 from typing import Dict, List
 
 import numpy as np
+import pandas as pd
 
 from utils.data_loader import (
     load_prompts_repetition_json,
@@ -123,19 +124,41 @@ def run_regime_analysis(portfolios: Dict[str, List[str]]):
         print("[Regime] No portfolios for regime analysis. Skipping.")
         return
     try:
+        # Load RF once
         rf_daily = get_risk_free_daily(RF_START, RF_END)
     except Exception:
         rf_daily = None
-    try:
-        df = regime_performance(portfolios, BACKTEST_START, BACKTEST_END, rf_daily=rf_daily, threshold=0.10, weighting=WEIGHTINGS[0])
+
+    all_results = []
+    for w_scheme in WEIGHTINGS:
+        try:
+            print(f"[Regime] Running analysis for weighting: {w_scheme}")
+            df = regime_performance(
+                portfolios,
+                BACKTEST_START,
+                BACKTEST_END,
+                rf_daily=rf_daily,
+                threshold=0.10,
+                weighting=w_scheme,
+                lookback=LOOKBACK,
+            )
+            if df is not None and not df.empty:
+                df["weighting"] = w_scheme
+                all_results.append(df)
+        except Exception as e:
+            print(f"[Regime] Error during regime analysis (Weighting: {w_scheme}): {e}")
+
+    if all_results:
+        final_df = pd.concat(all_results, ignore_index=True)
+        header = ["portfolio", "weighting", "period_start", "period_end", "bear_return", "bear_mdd"]
         save_csv(
             os.path.join(RESULTS_DIR, "regime_analysis.csv"),
-            df.to_dict(orient="records"),
-            header=["portfolio", "period_start", "period_end", "bear_return", "bear_mdd"],
+            final_df.to_dict(orient="records"),
+            header=header,
         )
         print(f"[Regime] Saved results to {os.path.join(RESULTS_DIR, 'regime_analysis.csv')}")
-    except Exception as e:
-        print(f"[Regime] Error during regime analysis: {e}")
+    else:
+        print("[Regime] No results generated.")
 
 
 # ----------------------

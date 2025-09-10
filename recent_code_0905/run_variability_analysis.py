@@ -36,7 +36,8 @@ RESULTS_DIR = os.path.join(
 # Statistical params
 R = 100
 b = 50
-B = 500  # quick-run; set to 5000 for full analysis
+# B = 500  # quick-run; set to 5000 for full analysis
+B = 5000  # final analysis repetitions per Appendix C
 K = 30
 ALPHA = 0.05
 
