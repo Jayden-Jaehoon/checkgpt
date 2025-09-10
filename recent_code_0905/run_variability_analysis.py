@@ -1,6 +1,6 @@
 import os
 import csv
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from utils.data_loader import (
     load_prompts_repetition_json,
@@ -23,6 +23,9 @@ from variability_analysis import (
 # Input JSON files
 REPETITION_JSON = os.path.join(
     "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Prompts", "prompts_repetition.json"
+)
+REPETITION_JSON_CLAUDE = os.path.join(
+    "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Prompts", "prompts_repetition_claude.json"
 )
 REPHRASE_JSON = os.path.join(
     "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Rephrase", "Rephrase_Repetition_Result_NVG.json"
@@ -75,7 +78,7 @@ def append_or_write_csv(path: str, rows: List[Dict[str, object]], header: List[s
 # JSON-based runners (Variability)
 # ----------------------
 
-def run_repetition_variability_from_prompts_json(file_path: str):
+def run_repetition_variability_from_prompts_json(file_path: str, suffix: Optional[str] = None):
     names, groups = load_prompts_repetition_json(file_path)
     if not groups:
         print(f"[Repetition] No data found in {file_path}. Skipping.")
@@ -109,17 +112,18 @@ def run_repetition_variability_from_prompts_json(file_path: str):
                 "p_value_D_gt_0": p_value,
             }
         )
+    out_name = f"repetition_variability{suffix if suffix else ''}.csv"
     save_csv(
-        os.path.join(RESULTS_DIR, "repetition_variability.csv"),
+        os.path.join(RESULTS_DIR, out_name),
         rows,
         header=["prompt", "mean_jaccard", "ci_low", "ci_high", "p_value_D_gt_0"],
     )
     print(
-        f"[Repetition] Saved results to {os.path.join(RESULTS_DIR, 'repetition_variability.csv')}"
+        f"[Repetition] Saved results to {os.path.join(RESULTS_DIR, out_name)}"
     )
 
 
-def run_prompt_permutation_from_prompts_json(file_path: str):
+def run_prompt_permutation_from_prompts_json(file_path: str, suffix: Optional[str] = None):
     names, groups = load_prompts_repetition_json(file_path)
     if not groups or len(groups) < 2:
         print(f"[Prompt] Not enough prompt groups in {file_path}. Skipping.")
@@ -137,13 +141,14 @@ def run_prompt_permutation_from_prompts_json(file_path: str):
             "p_value": p_value,
         }
     ]
+    out_name = f"rephrase_prompt_variability{suffix if suffix else ''}.csv"
     append_or_write_csv(
-        os.path.join(RESULTS_DIR, "rephrase_prompt_variability.csv"),
+        os.path.join(RESULTS_DIR, out_name),
         rows,
         header=["test", "groups", "R_per_group", "observed_D", "p_value"],
     )
     print(
-        f"[Prompt] Appended results to {os.path.join(RESULTS_DIR, 'rephrase_prompt_variability.csv')}"
+        f"[Prompt] Appended results to {os.path.join(RESULTS_DIR, out_name)}"
     )
 
 
@@ -184,12 +189,21 @@ def run_rephrase_permutation_from_rephrase_json(file_path: str):
 def main():
     ensure_dir(RESULTS_DIR)
 
+    # ChatGPT dataset (default)
     if os.path.isfile(REPETITION_JSON):
         run_repetition_variability_from_prompts_json(REPETITION_JSON)
         run_prompt_permutation_from_prompts_json(REPETITION_JSON)
     else:
         print(f"[Repetition/Prompt] JSON not found: {REPETITION_JSON}")
 
+    # Claude dataset
+    if os.path.isfile(REPETITION_JSON_CLAUDE):
+        run_repetition_variability_from_prompts_json(REPETITION_JSON_CLAUDE, suffix="_claude")
+        run_prompt_permutation_from_prompts_json(REPETITION_JSON_CLAUDE, suffix="_claude")
+    else:
+        print(f"[Repetition/Prompt] JSON not found: {REPETITION_JSON_CLAUDE}")
+
+    # Rephrase (shared NVG structure remains unchanged)
     if os.path.isfile(REPHRASE_JSON):
         run_rephrase_permutation_from_rephrase_json(REPHRASE_JSON)
     else:
