@@ -40,6 +40,9 @@ REPETITION_JSON_CLAUDE = os.path.join(
 REPHRASE_JSON = os.path.join(
     "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Rephrase", "Rephrase_Repetition_Result_NVG.json"
 )
+REPHRASE_JSON_CLAUDE = os.path.join(
+    "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Rephrase", "Rephrase_Repetition_Result_NVG_claude.json"
+)
 
 # Results path
 RESULTS_DIR = os.path.join(
@@ -208,18 +211,24 @@ def main():
     else:
         print(f"[Repetition/Prompt] JSON not found: {REPETITION_JSON}")
 
-    # Claude dataset
+    # Claude dataset (Prompts repetition)
     if os.path.isfile(REPETITION_JSON_CLAUDE):
         run_repetition_variability_from_prompts_json(REPETITION_JSON_CLAUDE, suffix="_claude")
         run_prompt_permutation_from_prompts_json(REPETITION_JSON_CLAUDE, suffix="_claude")
     else:
         print(f"[Repetition/Prompt] JSON not found: {REPETITION_JSON_CLAUDE}")
 
-    # Rephrase (shared NVG structure remains unchanged)
+    # Rephrase (ChatGPT)
     if os.path.isfile(REPHRASE_JSON):
         run_rephrase_permutation_from_rephrase_json(REPHRASE_JSON)
     else:
         print(f"[Rephrase] JSON not found: {REPHRASE_JSON}")
+
+    # Rephrase (Claude)
+    if os.path.isfile(REPHRASE_JSON_CLAUDE):
+        run_rephrase_permutation_from_rephrase_json(REPHRASE_JSON_CLAUDE)
+    else:
+        print(f"[Rephrase] JSON not found: {REPHRASE_JSON_CLAUDE}")
 
 
 if __name__ == "__main__":
