@@ -118,18 +118,25 @@ def backtest_portfolio(
     ann_return = float((1.0 + port_rets).prod() ** (252.0 / max(1, len(port_rets))) - 1.0)
     ann_vol = float(port_rets.std() * np.sqrt(252.0)) if len(port_rets) > 1 else np.nan
 
-    # --- Annualized Sharpe Ratio ---
+    # --- Sharpe and CI (correct JK/Lo procedure) ---
     denom = excess.std()
-    if denom > 0 and np.isfinite(denom):
-        # 1) Daily Sharpe
+    T = len(excess)
+
+    if denom > 0 and np.isfinite(denom) and T > 1:
+        # 1) Daily Sharpe (non-annualized)
         sr_daily = float(excess.mean() / denom)
-        # 2) Annualize assuming 252 trading days
+        # 2) Daily SE via JK/Lo
+        se_daily = calculate_sharpe_se(sr_daily, T)
+        # 3) Annualize both SR and SE
         sr_ann = sr_daily * np.sqrt(252.0)
+        se_ann = se_daily * np.sqrt(252.0) if np.isfinite(se_daily) else np.nan
+        # 4) Two-sided 95% CI using z=1.96
+        z = 1.96
+        sr_ci_low = sr_ann - z * se_ann if np.isfinite(se_ann) else np.nan
+        sr_ci_high = sr_ann + z * se_ann if np.isfinite(se_ann) else np.nan
     else:
         sr_ann = np.nan
-
-    # 3) CI based on annualized Sharpe
-    sr_ci_low, sr_ci_high = calculate_sharpe_ci(sr_ann, len(excess)) if np.isfinite(sr_ann) else (np.nan, np.nan)
+        sr_ci_low, sr_ci_high = np.nan, np.nan
 
     return {
         "cumulative_return": cum_return,
@@ -142,32 +149,19 @@ def backtest_portfolio(
 
 
 # -----------------------------
-# Sharpe CI (Jobson-Korkie/Lo approximation)
+# Sharpe SE (Jobson-Korkie/Lo approximation)
 # -----------------------------
 
-def calculate_sharpe_ci(SR: float, T: int, confidence: float = 0.95) -> Tuple[float, float]:
+def calculate_sharpe_se(SR: float, T: int) -> float:
+    """
+    Computes the Standard Error (SE) using Jobson-Korkie/Lo approximation.
+    SR should be the non-annualized Sharpe Ratio (e.g., daily SR if T is days).
+    SE(SR) = sqrt((1/T) * (1 + 0.5 * SR^2))
+    """
     if T <= 1 or not np.isfinite(SR):
-        return (np.nan, np.nan)
-    # Determine z-score for two-sided CI
-    z = 1.96
-    try:
-        from math import isclose
-        if isclose(confidence, 0.95, rel_tol=1e-6):
-            z = 1.96
-        elif abs(confidence - 0.99) < 1e-6:
-            z = 2.5758
-        elif abs(confidence - 0.90) < 1e-6:
-            z = 1.6449
-        else:
-            try:
-                from scipy.stats import norm
-                z = float(norm.ppf(0.5 + confidence / 2.0))
-            except Exception:
-                z = 1.96
-    except Exception:
-        z = 1.96
+        return np.nan
     SE = np.sqrt((1.0 / T) * (1.0 + 0.5 * (SR ** 2)))
-    return SR - z * SE, SR + z * SE
+    return SE
 
 
 # -----------------------------
