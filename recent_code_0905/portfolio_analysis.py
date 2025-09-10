@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Mapping
 
 import numpy as np
 import pandas as pd
@@ -54,6 +54,31 @@ def calculate_equal_weights(stocks: Sequence[str]) -> pd.Series:
     return w / w.sum()
 
 
+def calculate_market_cap_weights(
+    stocks: Sequence[str],
+    market_caps: Optional[Mapping[str, float]] = None,
+) -> pd.Series:
+    """
+    Compute market-cap weights for given stocks using a provided market_caps mapping (ticker -> market cap).
+    If mapping is missing or invalid for all, fall back to equal weights.
+    """
+    idx = list(stocks)
+    if market_caps is None:
+        return calculate_equal_weights(idx)
+    # Build series and filter to positive caps
+    try:
+        s = pd.Series({k: float(market_caps.get(k, np.nan)) for k in idx})
+        s = s.replace([np.inf, -np.inf], np.nan).dropna()
+        s = s[s > 0]
+    except Exception:
+        return calculate_equal_weights(idx)
+    if s.empty:
+        return calculate_equal_weights(idx)
+    w = s / s.sum()
+    # Ensure index order aligns to stocks
+    return w.reindex(idx).fillna(0.0)
+
+
 # -----------------------------
 # Backtesting
 # -----------------------------
@@ -62,7 +87,7 @@ def calculate_equal_weights(stocks: Sequence[str]) -> pd.Series:
 class BacktestConfig:
     start: str
     end: str
-    weighting: Literal["equal", "inverse_vol"] = "equal"
+    weighting: Literal["equal", "inverse_vol", "market_weight"] = "equal"
     lookback: int = 63  # for inverse vol
 
 
@@ -70,11 +95,14 @@ def backtest_portfolio(
     tickers: Sequence[str],
     cfg: BacktestConfig,
     rf_daily: Optional[pd.Series] = None,
+    preloaded_returns: Optional[pd.DataFrame] = None,
+    market_caps: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
     """
-    Download prices for tickers, compute daily portfolio returns with chosen weighting.
-    Returns a dictionary with metrics: cumulative_return, sharpe, sr_ci_low, sr_ci_high, ann_return, ann_vol.
-    Uses time-varying rf_daily for Sharpe if provided; aligns and fills as needed.
+    Compute daily portfolio returns with chosen weighting.
+    If preloaded_returns is provided (DataFrame of daily returns indexed by date, columns tickers),
+    it will be used instead of downloading with yfinance. market_caps can be provided to compute market_weight.
+    Returns metrics: cumulative_return, sharpe (annualized), sr_ci_low, sr_ci_high, ann_return, ann_vol.
     """
     if len(tickers) == 0:
         return {
@@ -86,17 +114,53 @@ def backtest_portfolio(
             "ann_vol": np.nan,
         }
 
-    prices = download_prices(tickers, start=cfg.start, end=cfg.end)
-    rets = prices.pct_change().dropna()
+    # Prepare returns
+    if preloaded_returns is not None and not preloaded_returns.empty:
+        rets_full = preloaded_returns.copy()
+        # filter dates
+        try:
+            rets_full.index = pd.to_datetime(rets_full.index)
+        except Exception:
+            pass
+        mask = (rets_full.index >= pd.to_datetime(cfg.start)) & (rets_full.index <= pd.to_datetime(cfg.end))
+        rets = rets_full.loc[mask]
+        # subset to available tickers
+        cols = [t for t in tickers if t in rets.columns]
+        if not cols:
+            # no overlap
+            return {
+                "cumulative_return": np.nan,
+                "sharpe": np.nan,
+                "sr_ci_low": np.nan,
+                "sr_ci_high": np.nan,
+                "ann_return": np.nan,
+                "ann_vol": np.nan,
+            }
+        rets = rets[cols].dropna(how="all")
+        prices = None
+    else:
+        prices = download_prices(tickers, start=cfg.start, end=cfg.end)
+        rets = prices.pct_change().dropna()
 
     # Determine weights
     if cfg.weighting == "equal":
         weights = calculate_equal_weights(rets.columns)
     elif cfg.weighting == "inverse_vol":
-        weights = calculate_inverse_volatility_weights(rets.columns, prices, lookback_period=cfg.lookback)
-        # ensure weights subset to available columns
+        if prices is not None:
+            weights = calculate_inverse_volatility_weights(rets.columns, prices, lookback_period=cfg.lookback)
+        else:
+            # derive from returns directly
+            rets_lb = rets.iloc[-cfg.lookback:] if cfg.lookback and len(rets) > cfg.lookback else rets
+            vol = rets_lb.std().replace(0, np.nan)
+            inv_vol = 1.0 / vol
+            inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan).dropna()
+            weights = inv_vol / inv_vol.sum() if not inv_vol.empty else calculate_equal_weights(rets.columns)
         weights = weights.reindex(rets.columns).dropna()
         weights = weights / weights.sum() if weights.sum() > 0 else calculate_equal_weights(rets.columns)
+    elif cfg.weighting == "market_weight":
+        weights = calculate_market_cap_weights(rets.columns, market_caps=market_caps)
+        if weights.sum() == 0:
+            weights = calculate_equal_weights(rets.columns)
     else:
         raise ValueError("Unsupported weighting scheme")
 
@@ -207,25 +271,54 @@ def regime_performance(
     end: str,
     rf_daily: Optional[pd.Series] = None,
     threshold: float = 0.10,
-    weighting: Literal["equal", "inverse_vol"] = "equal",
+    weighting: Literal["equal", "inverse_vol", "market_weight"] = "equal",
     lookback: int = 63,
+    preloaded_returns: Optional[pd.DataFrame] = None,
+    market_caps: Optional[Mapping[str, float]] = None,
 ) -> pd.DataFrame:
     """
     For each representative portfolio (dict name -> tickers), compute performance within bear/correction periods
     defined by SPX drawdowns >= threshold.
-    Returns DataFrame with columns: [portfolio, period_start, period_end, return, mdd].
+    Returns DataFrame with columns: [portfolio, period_start, period_end, bear_return, bear_mdd].
     """
     spx = get_sp500_index(start, end)
     periods = identify_drawdown_periods(spx, threshold=threshold)
 
     rows = []
     for name, tickers in portfolios.items():
-        prices = download_prices(tickers, start=start, end=end)
-        rets = prices.pct_change().dropna()
+        # Prepare returns
+        if preloaded_returns is not None and not preloaded_returns.empty:
+            rets_full = preloaded_returns.copy()
+            try:
+                rets_full.index = pd.to_datetime(rets_full.index)
+            except Exception:
+                pass
+            mask = (rets_full.index >= pd.to_datetime(start)) & (rets_full.index <= pd.to_datetime(end))
+            rets = rets_full.loc[mask]
+            cols = [t for t in tickers if t in rets.columns]
+            if not cols:
+                continue
+            rets = rets[cols].dropna(how="all")
+            prices = None
+        else:
+            prices = download_prices(tickers, start=start, end=end)
+            rets = prices.pct_change().dropna()
 
+        # Determine weights
         if weighting == "inverse_vol":
-            w = calculate_inverse_volatility_weights(rets.columns, prices, lookback_period=lookback)
+            if prices is not None:
+                w = calculate_inverse_volatility_weights(rets.columns, prices, lookback_period=lookback)
+            else:
+                rets_lb = rets.iloc[-lookback:] if lookback and len(rets) > lookback else rets
+                vol = rets_lb.std().replace(0, np.nan)
+                inv_vol = 1.0 / vol
+                inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan).dropna()
+                w = inv_vol / inv_vol.sum() if not inv_vol.empty else calculate_equal_weights(rets.columns)
             w = w.reindex(rets.columns).dropna()
+            if w.sum() == 0:
+                w = calculate_equal_weights(rets.columns)
+        elif weighting == "market_weight":
+            w = calculate_market_cap_weights(rets.columns, market_caps=market_caps)
             if w.sum() == 0:
                 w = calculate_equal_weights(rets.columns)
         else:

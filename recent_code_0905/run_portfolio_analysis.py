@@ -35,7 +35,7 @@ RESULTS_DIR = os.path.join(
 # Portfolio params
 BACKTEST_START = "2023-10-01"
 BACKTEST_END = "2025-09-01"
-WEIGHTINGS = ["equal", "inverse_vol"]
+WEIGHTINGS = ["equal", "inverse_vol", "market_weight"]
 LOOKBACK = 63
 
 # Risk-free settings
@@ -44,6 +44,10 @@ RF_END = BACKTEST_END
 
 # Representative portfolio size
 K = 30
+
+# Local data sources
+CHATGPT_DIR = "/Users/jaehoon/Alphatross/70_Research/checkgpt/rivision/Performance_Analysis"
+CLAUDE_DIR = "/Users/jaehoon/Alphatross/70_Research/checkgpt/rivision/Performance_Analysis_Claude"
 
 # ----------------------
 # Helpers
@@ -77,9 +81,155 @@ def build_representative_portfolios_from_prompts_json(file_path: str) -> Dict[st
     return portfolios
 
 
+def build_representative_portfolios_from_subset_json(file_path: str) -> Dict[str, List[str]]:
+    """
+    Load a JSON structured as { investor_type: [ [tickers], [tickers], ... ] } and build top-K frequency portfolios.
+    """
+    if not os.path.isfile(file_path):
+        return {}
+    try:
+        import json
+        with open(file_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[Builder] Failed to load subset portfolios from {file_path}: {e}")
+        return {}
+    portfolios: Dict[str, List[str]] = {}
+    for name, reps in data.items():
+        if isinstance(reps, list) and reps:
+            reps_clean = []
+            for rep in reps:
+                if isinstance(rep, list):
+                    reps_clean.append([str(x) for x in rep])
+            if reps_clean:
+                portfolios[name] = construct_representative_portfolio(reps_clean, K=K)
+    return portfolios
+
+
 # ----------------------
 # Runners
 # ----------------------
+
+def load_local_dataset(data_dir: str):
+    """
+    Load precomputed returns (sp500_2year_returns.csv) and market caps (market_caps_*.csv) from data_dir.
+    Returns (returns_df or None, market_caps mapping or None).
+    """
+    returns_df = None
+    market_caps = None
+    try:
+        ret_path = os.path.join(data_dir, "sp500_2year_returns.csv")
+        if os.path.isfile(ret_path):
+            returns_df = pd.read_csv(ret_path, index_col=0, parse_dates=True)
+    except Exception as e:
+        print(f"[Loader] Failed to load returns from {ret_path}: {e}")
+    try:
+        # find a market_caps_*.csv
+        candidates = [f for f in os.listdir(data_dir) if f.startswith("market_caps_") and f.endswith(".csv")]
+        if candidates:
+            caps_path = os.path.join(data_dir, sorted(candidates)[0])
+            caps_df = pd.read_csv(caps_path, index_col=0)
+            if "marketCap" in caps_df.columns:
+                market_caps = caps_df["marketCap"].to_dict()
+            else:
+                # fallback to first column
+                market_caps = caps_df.iloc[:, 0].to_dict()
+    except Exception as e:
+        print(f"[Loader] Failed to load market caps in {data_dir}: {e}")
+    return returns_df, market_caps
+
+
+def run_portfolio_backtests_for_dataset(portfolios: Dict[str, List[str]], dataset: str, data_dir: str):
+    if not portfolios:
+        print(f"[Portfolio-{dataset}] No portfolios to backtest. Skipping.")
+        return
+
+    rf_daily = None
+    try:
+        rf_daily = get_risk_free_daily(RF_START, RF_END)
+    except Exception as e:
+        print(f"[Portfolio-{dataset}] Could not download risk-free rates: {e}")
+
+    preloaded_returns, market_caps = load_local_dataset(data_dir)
+
+    rows = []
+    for name, tickers in portfolios.items():
+        for w in WEIGHTINGS:
+            cfg = BacktestConfig(start=BACKTEST_START, end=BACKTEST_END, weighting=w, lookback=LOOKBACK)
+            try:
+                res = backtest_portfolio(
+                    tickers,
+                    cfg,
+                    rf_daily=rf_daily,
+                    preloaded_returns=preloaded_returns,
+                    market_caps=market_caps,
+                )
+            except Exception as e:
+                print(f"[Portfolio-{dataset}] Error backtesting {name} ({w}): {e}")
+                res = {k: np.nan for k in [
+                    "cumulative_return", "sharpe", "sr_ci_low", "sr_ci_high", "ann_return", "ann_vol"
+                ]}
+            rows.append({
+                "dataset": dataset,
+                "portfolio": name,
+                "weighting": w,
+                **res,
+            })
+
+    save_csv(
+        os.path.join(RESULTS_DIR, f"portfolio_performance_{dataset}.csv"),
+        rows,
+        header=[
+            "dataset", "portfolio", "weighting", "cumulative_return", "sharpe", "sr_ci_low", "sr_ci_high", "ann_return", "ann_vol"
+        ],
+    )
+    print(f"[Portfolio-{dataset}] Saved results to {os.path.join(RESULTS_DIR, f'portfolio_performance_{dataset}.csv')}\n")
+
+
+def run_regime_analysis_for_dataset(portfolios: Dict[str, List[str]], dataset: str, data_dir: str):
+    if not portfolios:
+        print(f"[Regime-{dataset}] No portfolios for regime analysis. Skipping.")
+        return
+    try:
+        rf_daily = get_risk_free_daily(RF_START, RF_END)
+    except Exception:
+        rf_daily = None
+
+    preloaded_returns, market_caps = load_local_dataset(data_dir)
+
+    all_results = []
+    for w_scheme in WEIGHTINGS:
+        try:
+            print(f"[Regime-{dataset}] Running analysis for weighting: {w_scheme}")
+            df = regime_performance(
+                portfolios,
+                BACKTEST_START,
+                BACKTEST_END,
+                rf_daily=rf_daily,
+                threshold=0.10,
+                weighting=w_scheme,
+                lookback=LOOKBACK,
+                preloaded_returns=preloaded_returns,
+                market_caps=market_caps,
+            )
+            if df is not None and not df.empty:
+                df["dataset"] = dataset
+                df["weighting"] = w_scheme
+                all_results.append(df)
+        except Exception as e:
+            print(f"[Regime-{dataset}] Error during regime analysis (Weighting: {w_scheme}): {e}")
+
+    if all_results:
+        final_df = pd.concat(all_results, ignore_index=True)
+        header = ["dataset", "portfolio", "weighting", "period_start", "period_end", "bear_return", "bear_mdd"]
+        save_csv(
+            os.path.join(RESULTS_DIR, f"regime_analysis_{dataset}.csv"),
+            final_df.to_dict(orient="records"),
+            header=header,
+        )
+        print(f"[Regime-{dataset}] Saved results to {os.path.join(RESULTS_DIR, f'regime_analysis_{dataset}.csv')}\n")
+    else:
+        print(f"[Regime-{dataset}] No results generated.")
 
 def run_portfolio_backtests(portfolios: Dict[str, List[str]]):
     if not portfolios:
@@ -174,8 +324,20 @@ def main():
     else:
         print(f"[Portfolio] JSON not found: {PROMPTS_FOR_PORTFOLIOS_JSON}")
 
-    run_portfolio_backtests(portfolios)
-    run_regime_analysis(portfolios)
+    # Prefer dataset-specific representative portfolios if subset JSON exists
+    chatgpt_subset_json = os.path.join(CHATGPT_DIR, "portfolios_50_subset.json")
+    claude_subset_json = os.path.join(CLAUDE_DIR, "portfolios_50_subset.json")
+
+    chatgpt_portfolios = build_representative_portfolios_from_subset_json(chatgpt_subset_json) if os.path.isfile(chatgpt_subset_json) else portfolios
+    claude_portfolios = build_representative_portfolios_from_subset_json(claude_subset_json) if os.path.isfile(claude_subset_json) else portfolios
+
+    # Run for ChatGPT local dataset
+    run_portfolio_backtests_for_dataset(chatgpt_portfolios, dataset="chatgpt", data_dir=CHATGPT_DIR)
+    run_regime_analysis_for_dataset(chatgpt_portfolios, dataset="chatgpt", data_dir=CHATGPT_DIR)
+
+    # Run for Claude local dataset
+    run_portfolio_backtests_for_dataset(claude_portfolios, dataset="claude", data_dir=CLAUDE_DIR)
+    run_regime_analysis_for_dataset(claude_portfolios, dataset="claude", data_dir=CLAUDE_DIR)
 
 
 if __name__ == "__main__":
