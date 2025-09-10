@@ -2,6 +2,22 @@ import math
 import numpy as np
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 
+# ============================================================
+# Appendix C 핵심 통계 로직 구현 모듈 (상세 한국어 주석)
+# ------------------------------------------------------------
+# 본 모듈은 Online Appendix C의 절차를 엄격히 구현합니다.
+# - C.1 반복 변동성(Subsampling without replacement, U-statistic 기반)
+#   · 전체 평균 \bar{M}^{(R)}
+#   · b개 서브샘플 평균과 T_b = √b (\bar{M}^{(b)} − \bar{M}^{(R)}) 분포
+#   · CI: [\bar{J}^{(R)} − q_{1−α/2}/√R, \bar{J}^{(R)} − q_{α/2}/√R]
+#   · 가설: H0: E[\bar{D}] = 0 vs HA: >0, T_R^{(0)}=√R·\bar{D}^{(R)}, p= mean(T_b ≥ T_R^{(0)})
+# - C.2/C.3 리프레이즈/프롬프트 변동성(무작위 순열검정)
+#   · 각 그룹 대표 포트폴리오(Top-K 빈도) 구축 → 평균 비유사도 관측치
+#   · 전표본 풀링, 무작위 재할당 후 대표 포트폴리오 생성 → 귀무분포
+#   · p-value = (1 + #{D_perm ≥ D_obs})/(1 + B)
+# 모든 수식과 절차는 코드 주석과 함께 구현되어 있습니다.
+# ============================================================
+
 from utils.statistics import (
     calculate_jaccard,
     calculate_mean_pairwise_metric,

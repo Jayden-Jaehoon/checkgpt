@@ -2,6 +2,16 @@ import os
 import csv
 from typing import List, Dict, Optional
 
+# ============================================================
+# 변동성 분석 실행 스크립트 (Appendix C 구현 주석)
+# ------------------------------------------------------------
+# 이 스크립트는 Online Appendix C의 통계 검증 절차를 실행합니다.
+# - 반복(Repetition) 변동성: 비복원 서브샘플링(U-statistic) 기반 분포로 Jaccard의 CI, D>0 가설검정
+# - 리프레이즈/프롬프트 변동성: 무작위 순열검정으로 대표 포트폴리오 간 평균 비유사도 비교
+# - 반복 횟수 B=5000: 교수님 지시대로 최종 분석 시 충분한 반복으로 분위수/유의확률의 안정성을 확보
+# - Claude 지원: prompts_repetition_claude.json을 추가로 읽어 별도 접미사 파일에 저장
+# ============================================================
+
 from utils.data_loader import (
     load_prompts_repetition_json,
     load_rephrase_repetition_json,
@@ -37,10 +47,12 @@ RESULTS_DIR = os.path.join(
 )
 
 # Statistical params
+# R: 그룹당 반복 수(샘플크기), b: 서브샘플 크기(비복원), B: 재표집/순열 반복 횟수(최종분석은 5000),
+# K: 대표 포트폴리오 크기(Top-K 빈도), ALPHA: 유의수준(95% CI)
 R = 100
 b = 50
-# B = 500  # quick-run; set to 5000 for full analysis
-B = 5000  # final analysis repetitions per Appendix C
+# B = 500  # 빠른 테스트용 (논문 최종분석은 5000 권장)
+B = 5000  # Appendix C 기준 최종 반복 횟수 (분위수/유의확률 추정 안정화)
 K = 30
 ALPHA = 0.05
 

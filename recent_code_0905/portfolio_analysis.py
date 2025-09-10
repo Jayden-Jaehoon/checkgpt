@@ -1,5 +1,22 @@
 from __future__ import annotations
 
+# ============================================================
+# 포트폴리오 분석 모듈 (Professor 요구사항 반영 상세 주석)
+# ------------------------------------------------------------
+# 이 파일은 다음 요구사항을 충실히 반영합니다.
+# 1) 샤프 지수 및 신뢰구간: 교수님 지시대로 Daily Sharpe(SR)과 Daily SE를 먼저 계산한 뒤,
+#    두 값을 모두 연율화(√252 곱)하여 최종 Annualized Sharpe 및 95% CI를 산출합니다.
+#    - 함수: backtest_portfolio (SR/SE 계산 흐름), calculate_sharpe_se (JK/Lo 근사식)
+# 2) 가중 방식 확장: equal, inverse_vol(역변동성), market_weight(시가총액 가중) 지원.
+#    - market_weight는 외부에서 전달된 시가총액 딕셔너리(티커→시총)를 사용합니다.
+# 3) 시변 무위험수익률 적용: 일별 T-bill(^IRX → 일별 rf) 시계열을 받아 초과수익률로 Sharpe 계산.
+# 4) 시장 국면(Regime) 분석: S&P 500의 하락 구간(고점대비 10% 이상) 식별 후 해당 구간에서
+#    각 대표 포트폴리오의 구간수익률 및 최대낙폭(MDD)을 계산합니다. 모든 가중 방식에 대해 실행될 수 있도록
+#    weighting 파라미터로 제어 가능.
+# 5) 로컬 사전계산 데이터 지원: 사전 계산된 일별 수익률(returns)과 시가총액을 입력받아
+#    야후 다운로드 없이 분석 가능하도록 설계됨.
+# ============================================================
+
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Mapping
 

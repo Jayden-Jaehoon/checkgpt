@@ -2,6 +2,18 @@ import os
 import csv
 from typing import Dict, List
 
+# ============================================================
+# 포트폴리오 실행 스크립트 (ChatGPT/Claude + 시장가중 + 국면분석 확대)
+# ------------------------------------------------------------
+# 본 스크립트는 다음 요구사항을 반영합니다.
+# - ChatGPT와 Claude 데이터셋 각각에 대해 대표 포트폴리오 구성 및 백테스트/국면분석 수행
+# - weighting 스킴: equal, inverse_vol, market_weight(시가총액 가중) 모두 지원
+# - 로컬 사전계산 데이터 활용: rivision/Performance_Analysis(_Claude) 폴더의
+#   sp500_2year_returns.csv(일별 수익률), market_caps_*.csv(시총) 사용
+# - 국면(Regime) 분석: 모든 가중 방식에 대해 반복 실행하여 통합 결과 저장
+# 주석은 교수님 요청사항이 코드의 어느 부분에서 구현되는지 명시합니다.
+# ============================================================
+
 import numpy as np
 import pandas as pd
 
