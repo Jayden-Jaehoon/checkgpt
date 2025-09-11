@@ -100,12 +100,27 @@ def calculate_market_cap_weights(
 # Backtesting
 # -----------------------------
 
+def _normalize_returns_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detect if returns are expressed in percent units (e.g., 0.5 meaning 0.5%).
+    Heuristic: if the 99th percentile absolute return > 1.5, treat as percent and divide by 100.
+    """
+    try:
+        q = df.astype(float).abs().quantile(0.99).max()
+    except Exception:
+        return df
+    if pd.notna(q) and q > 1.5:
+        return df / 100.0
+    return df
+
+
 @dataclass
 class BacktestConfig:
     start: str
     end: str
     weighting: Literal["equal", "inverse_vol", "market_weight"] = "equal"
     lookback: int = 63  # for inverse vol
+    accumulate_in_log: bool = False  # 0728 호환 기본(False), 필요 시 로그 누적(True)
 
 
 def backtest_portfolio(
@@ -154,6 +169,8 @@ def backtest_portfolio(
                 "ann_vol": np.nan,
             }
         rets = rets[cols].dropna(how="all")
+        # normalize scale if returns are in percent units
+        rets = _normalize_returns_frame(rets)
         prices = None
     else:
         prices = download_prices(tickers, start=cfg.start, end=cfg.end)
@@ -195,9 +212,21 @@ def backtest_portfolio(
         excess = port_rets.copy()
 
     # Metrics
-    cum_return = float((1.0 + port_rets).prod() - 1.0)
-    ann_return = float((1.0 + port_rets).prod() ** (252.0 / max(1, len(port_rets))) - 1.0)
-    ann_vol = float(port_rets.std() * np.sqrt(252.0)) if len(port_rets) > 1 else np.nan
+    if len(port_rets) > 0:
+        if cfg.accumulate_in_log:
+            # 로그 누적(옵션): 수치 안정화용
+            logret = np.log1p(port_rets)
+            cum_return = float(np.expm1(logret.sum()))
+            ann_return = float(np.expm1(logret.mean() * 252.0))
+        else:
+            # 0728과 동일: 단순 수익률 누적곱 및 복리 연율
+            cum_return = float((1.0 + port_rets).prod() - 1.0)
+            ann_return = float((1.0 + port_rets).prod() ** (252.0 / max(1, len(port_rets))) - 1.0)
+        ann_vol = float(port_rets.std() * np.sqrt(252.0)) if len(port_rets) > 1 else np.nan
+    else:
+        cum_return = np.nan
+        ann_return = np.nan
+        ann_vol = np.nan
 
     # --- Sharpe and CI (correct JK/Lo procedure) ---
     denom = excess.std()
@@ -276,10 +305,16 @@ def identify_drawdown_periods(index_series: pd.Series, threshold: float = 0.10) 
 
 
 def max_drawdown(series: pd.Series) -> float:
-    s = (1.0 + series).cumprod()
-    peak = s.cummax()
-    dd = (s / peak) - 1.0
-    return float(dd.min()) if not dd.empty else np.nan
+    """
+    Numerically stable maximum drawdown using log-wealth to avoid overflow.
+    """
+    if series is None or len(series) == 0:
+        return np.nan
+    logw = np.log1p(series).cumsum()
+    peak_logw = np.maximum.accumulate(logw.values)
+    # drawdown in wealth space = exp(current - peak) - 1
+    dd = np.exp(logw.values - peak_logw) - 1.0
+    return float(dd.min()) if dd.size > 0 else np.nan
 
 
 def regime_performance(
@@ -292,14 +327,25 @@ def regime_performance(
     lookback: int = 63,
     preloaded_returns: Optional[pd.DataFrame] = None,
     market_caps: Optional[Mapping[str, float]] = None,
+    fixed_periods: Optional[Sequence[Tuple[object, object]]] = None,
+    accumulate_in_log: bool = False,
 ) -> pd.DataFrame:
     """
     For each representative portfolio (dict name -> tickers), compute performance within bear/correction periods
-    defined by SPX drawdowns >= threshold.
+    defined by SPX drawdowns >= threshold, or within user-specified fixed_periods if provided.
     Returns DataFrame with columns: [portfolio, period_start, period_end, bear_return, bear_mdd].
+    - accumulate_in_log: False(기본, 0728과 동일하게 (1+r) 누적), True(로그 누적으로 수치 안정화)
     """
-    spx = get_sp500_index(start, end)
-    periods = identify_drawdown_periods(spx, threshold=threshold)
+    if fixed_periods is not None:
+        # Use fixed (start, end) tuples supplied by caller
+        periods = []
+        for ps, pe in fixed_periods:
+            ps_ts = pd.to_datetime(ps)
+            pe_ts = pd.to_datetime(pe)
+            periods.append((ps_ts, pe_ts))
+    else:
+        spx = get_sp500_index(start, end)
+        periods = identify_drawdown_periods(spx, threshold=threshold)
 
     rows = []
     for name, tickers in portfolios.items():
@@ -316,6 +362,8 @@ def regime_performance(
             if not cols:
                 continue
             rets = rets[cols].dropna(how="all")
+            # normalize scale if returns are in percent units
+            rets = _normalize_returns_frame(rets)
             prices = None
         else:
             prices = download_prices(tickers, start=start, end=end)
@@ -350,7 +398,12 @@ def regime_performance(
             sub = port_rets.loc[(port_rets.index >= ps) & (port_rets.index <= pe)]
             if sub.empty:
                 continue
-            total_return = float((1.0 + sub).prod() - 1.0)
+            # 구간 누적수익 계산: 옵션 분기 (기본은 0728 방식)
+            if accumulate_in_log:
+                log_sub = np.log1p(sub)
+                total_return = float(np.expm1(log_sub.sum()))
+            else:
+                total_return = float((1.0 + sub).prod() - 1.0)
             mdd = max_drawdown(sub)
             rows.append({
                 "portfolio": name,

@@ -17,6 +17,13 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
+# tqdm(진행바) 선택적 사용 준비
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    def tqdm(iterable=None, desc=None, total=None):
+        return iterable if iterable is not None else []
+
 from utils.data_loader import (
     load_prompts_repetition_json,
     get_risk_free_daily,
@@ -34,9 +41,13 @@ from portfolio_analysis import (
 # Configuration (Portfolio)
 # ----------------------
 
-# Input JSON for building representative portfolios from prompt repetitions
+# Input JSON for building representative portfolios from prompt repetitions (ChatGPT)
 PROMPTS_FOR_PORTFOLIOS_JSON = os.path.join(
     "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Prompts", "prompts_repetition.json"
+)
+# Input JSON for building representative portfolios from prompt repetitions (Claude)
+PROMPTS_FOR_PORTFOLIOS_JSON_CLAUDE = os.path.join(
+    "/Users/jaehoon/Alphatross/70_Research/checkgpt", "results", "Prompts", "prompts_repetition_claude.json"
 )
 
 # Results path
@@ -45,10 +56,15 @@ RESULTS_DIR = os.path.join(
 )
 
 # Portfolio params
-BACKTEST_START = "2023-10-01"
-BACKTEST_END = "2025-09-01"
+# 전체 평가 기간(포함): 2023-01-02 ~ 2025-06-30
+BACKTEST_START = "2023-01-02"
+BACKTEST_END = "2025-06-30"
 WEIGHTINGS = ["equal", "inverse_vol", "market_weight"]
 LOOKBACK = 63
+
+# Bear 서브샘플(포함): 2023-08-01 ~ 2024-06-18
+BEAR_START = "2023-08-01"
+BEAR_END = "2024-06-18"
 
 # Risk-free settings
 RF_START = BACKTEST_START
@@ -165,7 +181,7 @@ def run_portfolio_backtests_for_dataset(portfolios: Dict[str, List[str]], datase
     preloaded_returns, market_caps = load_local_dataset(data_dir)
 
     rows = []
-    for name, tickers in portfolios.items():
+    for name, tickers in tqdm(list(portfolios.items()), desc=f"Backtests ({dataset})"):
         for w in WEIGHTINGS:
             cfg = BacktestConfig(start=BACKTEST_START, end=BACKTEST_END, weighting=w, lookback=LOOKBACK)
             try:
@@ -210,9 +226,9 @@ def run_regime_analysis_for_dataset(portfolios: Dict[str, List[str]], dataset: s
     preloaded_returns, market_caps = load_local_dataset(data_dir)
 
     all_results = []
-    for w_scheme in WEIGHTINGS:
+    for w_scheme in tqdm(WEIGHTINGS, desc=f"Regime weights ({dataset})"):
         try:
-            print(f"[Regime-{dataset}] Running analysis for weighting: {w_scheme}")
+            print(f"[Regime-{dataset}] Running analysis for weighting: {w_scheme} (Fixed bear period)")
             df = regime_performance(
                 portfolios,
                 BACKTEST_START,
@@ -223,6 +239,7 @@ def run_regime_analysis_for_dataset(portfolios: Dict[str, List[str]], dataset: s
                 lookback=LOOKBACK,
                 preloaded_returns=preloaded_returns,
                 market_caps=market_caps,
+                fixed_periods=[(BEAR_START, BEAR_END)],
             )
             if df is not None and not df.empty:
                 df["dataset"] = dataset
@@ -235,11 +252,11 @@ def run_regime_analysis_for_dataset(portfolios: Dict[str, List[str]], dataset: s
         final_df = pd.concat(all_results, ignore_index=True)
         header = ["dataset", "portfolio", "weighting", "period_start", "period_end", "bear_return", "bear_mdd"]
         save_csv(
-            os.path.join(RESULTS_DIR, f"regime_analysis_{dataset}.csv"),
+            os.path.join(RESULTS_DIR, f"regime_analysis_bear_fixed_{dataset}.csv"),
             final_df.to_dict(orient="records"),
             header=header,
         )
-        print(f"[Regime-{dataset}] Saved results to {os.path.join(RESULTS_DIR, f'regime_analysis_{dataset}.csv')}\n")
+        print(f"[Regime-{dataset}] Saved results to {os.path.join(RESULTS_DIR, f'regime_analysis_bear_fixed_{dataset}.csv')}\n")
     else:
         print(f"[Regime-{dataset}] No results generated.")
 
@@ -294,7 +311,7 @@ def run_regime_analysis(portfolios: Dict[str, List[str]]):
     all_results = []
     for w_scheme in WEIGHTINGS:
         try:
-            print(f"[Regime] Running analysis for weighting: {w_scheme}")
+            print(f"[Regime] Running analysis for weighting: {w_scheme} (Fixed bear period)")
             df = regime_performance(
                 portfolios,
                 BACKTEST_START,
@@ -303,6 +320,7 @@ def run_regime_analysis(portfolios: Dict[str, List[str]]):
                 threshold=0.10,
                 weighting=w_scheme,
                 lookback=LOOKBACK,
+                fixed_periods=[(BEAR_START, BEAR_END)],
             )
             if df is not None and not df.empty:
                 df["weighting"] = w_scheme
@@ -314,11 +332,11 @@ def run_regime_analysis(portfolios: Dict[str, List[str]]):
         final_df = pd.concat(all_results, ignore_index=True)
         header = ["portfolio", "weighting", "period_start", "period_end", "bear_return", "bear_mdd"]
         save_csv(
-            os.path.join(RESULTS_DIR, "regime_analysis.csv"),
+            os.path.join(RESULTS_DIR, "regime_analysis_bear_fixed.csv"),
             final_df.to_dict(orient="records"),
             header=header,
         )
-        print(f"[Regime] Saved results to {os.path.join(RESULTS_DIR, 'regime_analysis.csv')}")
+        print(f"[Regime] Saved results to {os.path.join(RESULTS_DIR, 'regime_analysis_bear_fixed.csv')}")
     else:
         print("[Regime] No results generated.")
 
@@ -336,12 +354,12 @@ def main():
     else:
         print(f"[Portfolio] JSON not found: {PROMPTS_FOR_PORTFOLIOS_JSON}")
 
-    # Prefer dataset-specific representative portfolios if subset JSON exists
-    chatgpt_subset_json = os.path.join(CHATGPT_DIR, "portfolios_50_subset.json")
-    claude_subset_json = os.path.join(CLAUDE_DIR, "portfolios_50_subset.json")
+    # 각 데이터셋별 대표 포트폴리오 기본값을 해당 LLM의 prompts_repetition JSON에서 구성
+    chatgpt_base = build_representative_portfolios_from_prompts_json(PROMPTS_FOR_PORTFOLIOS_JSON) if os.path.isfile(PROMPTS_FOR_PORTFOLIOS_JSON) else {}
+    claude_base = build_representative_portfolios_from_prompts_json(PROMPTS_FOR_PORTFOLIOS_JSON_CLAUDE) if os.path.isfile(PROMPTS_FOR_PORTFOLIOS_JSON_CLAUDE) else {}
 
-    chatgpt_portfolios = build_representative_portfolios_from_subset_json(chatgpt_subset_json) if os.path.isfile(chatgpt_subset_json) else portfolios
-    claude_portfolios = build_representative_portfolios_from_subset_json(claude_subset_json) if os.path.isfile(claude_subset_json) else portfolios
+    chatgpt_portfolios = chatgpt_base
+    claude_portfolios =  claude_base
 
     # Run for ChatGPT local dataset
     run_portfolio_backtests_for_dataset(chatgpt_portfolios, dataset="chatgpt", data_dir=CHATGPT_DIR)
